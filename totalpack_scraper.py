@@ -34,7 +34,7 @@ DEFAULT_SKU_FILE = "totalpack_product_skus.xlsx"
 CATEGORY_NAMES = {
     1408: "Office Products / Office & School Supplies / Labels, Indexes & Stamps / Labels & Stickers / All-Purpose Labels",
     10628: "Home & Kitchen / Kitchen & Dining / Dining & Entertaining / Flatware / Flatware Sets / Flatware Sets",
-    53765: "Industrial & Scientific / Professional Medical Supplies / Apparel / Face Masks & Shields / Disposable Medical Masks",
+    54386: "Industrial & Scientific / Professional Medical Supplies / Apparel / Face Masks & Shields / Masks",
     9030: "Industrial & Scientific / Retail Store Fixtures & Equipment / Point-of-Sale (POS) Equipment & Accessories / POS & Register Rolls",
     843: "Office Products / Office & School Supplies / Envelopes, Mailers & Shipping Supplies / Packing Materials / Packing Tape",
     11085: "Home & Kitchen / Kitchen & Dining / Food Service Equipment & Supplies / Disposables / Take Out Containers / Boxes",
@@ -255,7 +255,7 @@ def pick_category(product: dict[str, Any], source: SourceSku) -> int:
     if "kalcuni" in slugs:
         return 31121
     if "maski-za-litse" in slugs:
-        return 53765
+        return 54386
     if "rykavici" in slugs:
         return 6774
     raise ValueError(f"No Temu category mapping for SKU {source.sku}: {sorted(slugs)}")
@@ -294,16 +294,21 @@ def category_properties(category_id: int, text: str, thickness_um: float) -> dic
         props["t_3_Property:1081"] = "Thermal Transfer Printing"
     elif category_id == 9030:
         props["t_3_Property:610"] = "48"
-    elif category_id in {843, 6774, 53765}:
+    elif category_id in {843, 6774, 54386}:
         if category_id == 843:
             major_material = "PP"
         props["t_3_Property:1920"] = major_material
-        if category_id == 53765:
+        if category_id == 54386:
             props["t_3_Property:1117"] = "3 Years+"
     elif category_id == 31121:
-        props["t_3_Property:12"] = "Polyethylene (PE)"
+        props["t_3_Property:12"] = "PE"
         props["t_3_Property:15:1309"] = 100
     elif category_id in {10628, 11085, 11091, 10088, 17188, 17189, 12950}:
+        # Long TotalPack descriptions contain links to other foil categories.
+        # For stretch film, use the product's own PVC/PE wording instead of
+        # accidentally classifying it as aluminium from a related-category link.
+        if category_id == 17189:
+            material = "Polyvinyl Chloride Pvc" if "pvc" in text.lower() else "PE"
         props["t_3_Property:121"] = material
         if category_id in {10628, 11085, 11091, 10088}:
             props["t_3_Property:8319"] = food_material
@@ -346,7 +351,8 @@ def parse_dimensions(text: str, source: SourceSku, fallback: float) -> tuple[flo
         return values[0], values[1], fallback, " × ".join(f"{v:g}" for v in values) + " cm", True
     if circle:
         diameter = number(circle.group(1))
-        if str(circle.group(2) or "cm").lower() in {"mm", "мм"}:
+        unit = str(circle.group(2) or "").lower()
+        if unit in {"mm", "мм"} or (not unit and "сламк" in normalized.lower() and diameter <= 20):
             diameter /= 10
         return diameter, diameter, fallback, f"Ø{diameter:g} cm", True
     return fallback, fallback, fallback, f"{fallback:g} × {fallback:g} × {fallback:g} cm", True
@@ -376,6 +382,7 @@ def build_row(product: dict[str, Any], source: SourceSku, default_dimension: flo
     short_description = clean_html(product.get("short_description"))
     description = clean_html(product.get("description"))
     combined = "\n".join(part for part in (name, short_description, description) if part)
+    category_context = " ".join(str(c.get("slug") or "") for c in product.get("categories") or [])
     category_id = pick_category(product, source)
     price, list_price = product_price(product)
     images = []
@@ -417,7 +424,7 @@ def build_row(product: dict[str, Any], source: SourceSku, default_dimension: flo
         height_cm=max(0.1, round(height, 2)),
         dimensions_text=dimensions_text,
         pack_count=pack_count,
-        properties=category_properties(category_id, combined, thickness),
+        properties=category_properties(category_id, f"{combined}\n{category_context}", thickness),
         notes=notes,
     )
 
