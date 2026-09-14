@@ -1,0 +1,68 @@
+name: Run TotalPack Temu scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Product limit (blank or 0 = all SKUs)"
+        required: false
+        default: "0"
+      search:
+        description: "Optional SKU/name/category filter"
+        required: false
+        default: ""
+      only_in_stock:
+        description: "Exclude out-of-stock products"
+        type: boolean
+        required: false
+        default: false
+      country_origin:
+        description: "Country/Region of Origin (verify before upload)"
+        required: true
+        default: "Bulgaria"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run scraper
+        env:
+          LIMIT: ${{ inputs.limit }}
+          SEARCH: ${{ inputs.search }}
+          ONLY_IN_STOCK: ${{ inputs.only_in_stock }}
+          COUNTRY_ORIGIN: ${{ inputs.country_origin }}
+        run: |
+          args=(
+            --template "TEMU_ALL-PURPOSE-LABELS_ALUMINUM-FOIL_BOXES_BOXES_CLOTH-FACE-MASKS_CONTAINERS_CONTAINERS_DISPOSABLE-MEDIC.xlsx"
+            --sku-file "totalpack_product_skus.xlsx"
+            --output-dir "output"
+            --limit "${LIMIT:-0}"
+            --search "$SEARCH"
+            --country-origin "$COUNTRY_ORIGIN"
+          )
+          if [[ "$ONLY_IN_STOCK" == "true" ]]; then
+            args+=(--only-in-stock)
+          fi
+          python totalpack_scraper.py "${args[@]}"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: totalpack-temu-results
+          path: output/
+          if-no-files-found: error
+          retention-days: 14
